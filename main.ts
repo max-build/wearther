@@ -75,11 +75,13 @@ async function main() {
         schema: { // this schema is required by swagger, specifies what inputs the swagger UI needs to pass. 
             body: {
                 type: 'object',
-                required:['city', 'country'],
+                required:['city', 'country', 'gender'],
                 properties:{
                     city:{type:'string', examples:['Melbourne']},
                     country:{type:'string', examples:['Australia']},
-                    gender:{type:'string', examples:['Male']}
+                    gender:{type:'string',
+                        enum:['Male', 'Female', 'Unisex']
+                    }
                 }
             }
         },
@@ -94,31 +96,29 @@ async function main() {
     
             try {
 
-
                 const open_weather_map_key = process.env.open_weather_map_key
-
-
-
-
-
-    
                 const r_country = request.body.country; // country name provided by user
                 const r_city = request.body.city; // city provided by user
                 const r_gender = request.body.gender; // gender provided by user
-
-
-                const country_code = Object.keys(countryListAlpha2).find(key => 
-                    countryListAlpha2[key].toLowerCase() === r_country.toLowerCase()
-                ) // iterates through hashmap of country_codes:country_names to fetch country code
-                fastify.log.info(country_code)
-                // Object.keys(countryListAlpha2) specifies we're checking the keys (Object is needed because Hashmaps are objects in Javascript)
+                const country_code = (Object.keys(countryListAlpha2).find(key => countryListAlpha2[key].toLowerCase() === r_country.toLowerCase()) ?? "Empty")
+                if (country_code === "Empty") {
+                    throw new Error(`User has entered a country not stored in database.`) 
+                // line 103 iterates through hashmap of country_codes:country_names to fetch country code
+                // Object.keys(countryListAlpha2) specifies we're returning the keys (Object is needed because Hashmaps are objects in Javascript)
                 // .find(key => countryListAlpha[key]) tells the lambda to iterate through all key:value pairs in countryListAlpha2
                 // countryListAlpha2[key] returns the value from the key:value pair its pointing to
-                // countryListAlpha2[key].toLowerCase() === r_country.toLowerCase() compares the value against r_country (country name)
+                // countryListAlpha2[key].toLowerCase() === r_country.toLowerCase() compares the value against r_country (country name) in lowercase
                 // Object.keys() specifies that this look is to return the key, not the value in the key:value pair.
                 // Object.values(hashmap) returns values
                 // Object.entries(hashmap) returns full key:value pair
 
+                // write loop to check country user has provided against countrys in countryListAlpha2 to ensure they've provided a country the 
+                // app can lookup in the weather API. 
+
+               
+                }
+
+     
                 
                 const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${r_city},${country_code}&appid=${open_weather_map_key}`); // calls weather API
     
@@ -136,35 +136,57 @@ async function main() {
                 const city = data.name; // fetches city from API call data
                 const description = data.weather[0].description; // fetches description from API call data
                 const humidity = data.main.humidity;
-    
-                // fastify.log.info(`It is ${temp_in_celsius}°C with ${description} in ${city} right now.`); 
-                // currently outputting temp, description and city. 
-                // Only prints to console, this is not returned by this function. 
 
-    
-    
                 const clothing = await callDeepseek(`Recommend a culturally appropriate, weather appropriate, 
                     ${r_gender} outfit for someone in ${r_city}, ${r_country} including top, 
                     bottom and shoes for ${temp_in_celsius} degrees celsius and ${description} at ${humidity}% humidity` 
                     );
 
-                const lowercase_clothing = clothing.toLowerCase()
+                const lowercase_clothing = (clothing ?? "Empty").toLowerCase()
+                // (clothing ?? '') defines the variable to empty if it is null when you try to call it. 
 
-    
                 const weather_and_outfit_recommendation = (`It is ${temp_in_celsius}°C with ${description} in ${city}, ${r_country} right now. My recommendation: ${clothing}`)
     
-                fastify.log.info(weather_and_outfit_recommendation);
-    
-    
-                // fastify.log.info("Successfully fetched weather data.");
-    
-                return reply.code(200).send(weather_and_outfit_recommendation);
+                fastify.log.info(weather_and_outfit_recommendation); // prints output to terminal, this is for logging and testing. 
+                return reply.code(200).send(weather_and_outfit_recommendation); // return statement for this function, this is for the frontend. 
     
             } catch (error) {
+
+                // when catching errors, use error.message (allows you to extract error message you threw)
+                // use .includes to check the message's contents, use this to specify which error you're handling.
+
+                if (error.message.includes("country not stored in database")) {
+                    return reply.code(422).send({
+                        statusCode: 422,
+                        error: "User entered a country not stored in the database, please check spelling.",
+                    })
+                }
+                // error code 422 means Unprocessable Entity (no syntax error occured but input was semantically wrong)
+                // reply is what is returned by the function, so status code is sent as part of the reply. 
+                // remember: request is what comes in, reply is what goes out.
+
+                if (error.message.includes("Weather API call failed")) {
+                    return reply.code(422).send({
+                        statusCode:422,
+                        error: "User entered a city not stored in the database, please check spelling.",
+                    })
+                }
+
+                if (error.message.includes("unisex")) {
+                    return reply.code(422).send({
+                        statusCode:422,
+                        error:"User entered incorrect gender option. I'm unsure how because choices are enforced. Well done. *Slow clap*"
+                    })
+                }
+
+                // message is an attribute of error
+                // error.message contains the message from when you threw the error.
+
+
+
                 fastify.log.error(error);
-                return reply.code(500).send({error: "Error caught."})
+                return reply.code(500).send({error: "Error caught, check log for more details."})
             }
-    
             // curl -X POST http://localhost:3000/api/fetch-weather -H "Content-Type: application/json" -d '{"country": "AU", "city": "melbourne"}' -w "\n"
             // above is the curl request for testing this endpoint
     
@@ -200,7 +222,6 @@ main();
 
     // Integrate external weather API  [COMPLETE] [14/05/2026]
     // Integrate Deepseek to take weather and recommend an outfit with friendly message. [COMPLETE] [14/05/2026]
-    // Push this app to github.
-    // Add country code dictionary to convert country codes eg AU, US, GB into country names so I can display countries in fetch-weather output. 
-    // In fetch-weather, add country-name-to-code converter so POST method can receive full country name, convert it to code, and then return the country in the output. 
+    // Push this app to github. [COMPLETE] [15/05/2026]
+    // Add country code dictionary to enable fetch-weather to take in country names, convert them to codes (ie. AU, FR) to pass to open weather API  [COMPLETE] [15/06/2026]
     // Integrate Redis to cache weather API calls 
