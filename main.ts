@@ -5,6 +5,11 @@ import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui'
 import 'dotenv/config'
 
+//> Redis imports and config 
+import {createClient} from 'redis';
+const client = createClient();
+client.on('error', err => console.log('Redis Client Error', err));
+
 
 const fastify = Fastify({
     logger: {
@@ -13,6 +18,9 @@ const fastify = Fastify({
         },
     },
 })
+
+//> testing redis, logs value
+
 
 // fastify.get('/', async function () {
 //     return{message:"Hello world"};
@@ -68,7 +76,10 @@ async function main() {
     await fastify.register(fastifySwaggerUi, {
         routePrefix: '/docs',
     });
+ 
 
+
+    await client.connect();
 
 
     fastify.post("/api/fetch-weather", {
@@ -94,6 +105,11 @@ async function main() {
         }>, reply:FastifyReply) => {
     
     
+            await client.set('key', 'value'); // sets key:value pair, caches it using redis
+            const value = await client.get('key'); // redis uses the key to fetch the value, stores this in value
+            fastify.log.info(value); // redis logs the contents of value, which is the value from the original key:value pair
+
+
             try {
 
                 const open_weather_map_key = process.env.open_weather_map_key
@@ -103,6 +119,10 @@ async function main() {
                 const country_code = (Object.keys(countryListAlpha2).find(key => countryListAlpha2[key].toLowerCase() === r_country.toLowerCase()) ?? "Empty")
                 if (country_code === "Empty") {
                     throw new Error(`User has entered a country not stored in database.`) 
+
+
+
+
                 // line 103 iterates through hashmap of country_codes:country_names to fetch country code
                 // Object.keys(countryListAlpha2) specifies we're returning the keys (Object is needed because Hashmaps are objects in Javascript)
                 // .find(key => countryListAlpha[key]) tells the lambda to iterate through all key:value pairs in countryListAlpha2
@@ -118,8 +138,10 @@ async function main() {
                
                 }
 
+
+                await client.set(`${r_city} ${country_code}`, 'Already stored') 
+
      
-                
                 const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${r_city},${country_code}&appid=${open_weather_map_key}`); // calls weather API
     
                 // if i have to use country codes, make a seperate file with a dictionary converting country names into the country code
@@ -224,4 +246,6 @@ main();
     // Integrate Deepseek to take weather and recommend an outfit with friendly message. [COMPLETE] [14/05/2026]
     // Push this app to github. [COMPLETE] [15/05/2026]
     // Add country code dictionary to enable fetch-weather to take in country names, convert them to codes (ie. AU, FR) to pass to open weather API  [COMPLETE] [15/06/2026]
-    // Integrate Redis to cache weather API calls 
+    // Remove clothing colour recommendations to make outfit suggestions more widely applicable [COMPLETE] [24/05/2026]
+    // Switch yo Yarn as exclusive package manager to prevent npm/yarn conflicts [COMPLETE] [24/05/2026]
+    // Integrate Redis to cache weather API calls [IN PROGRESS] [24/05/2026]

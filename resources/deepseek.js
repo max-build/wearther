@@ -10,7 +10,7 @@ const openai = new OpenAI({
     try {
       const completion = await openai.chat.completions.create({
         messages: [
-          { role: "system", content: "Don't exceed 30 words in your responses. Don't specify the weather conditions. Don't start your response with I recommend, or my recommendation is. Only cover the clothing. Offer colour recommendation for a coordinated outfit." },
+          { role: "system", content: "Don't exceed 30 words in your responses. Don't specify the weather conditions. Don't start your response with I recommend, or my recommendation is. Only cover the clothing. Don't specify colours for the clothing." },
           { role: "user", content: message },
         ],
         model: "deepseek-chat",
