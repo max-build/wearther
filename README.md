@@ -4,7 +4,7 @@ A TypeScript web app that recommends a weather-appropriate **and locally appropr
 
 1. Type your **city** (results from every country appear as you type) and pick an **outfit style** (masculine, feminine or unisex), or click **📍 Find my location**.
 2. The server fetches current conditions from [Open-Meteo](https://open-meteo.com/) (free, no key).
-3. The weather goes to **Claude** (`claude-sonnet-5-5`), which streams back an outfit that suits the weather and follows local dress conventions and norms.
+3. The weather goes to **Claude** (`claude-sonnet-5-5`), which writes an outfit that suits the weather and follows local dress conventions and norms.
 
 ## Quick start
 
@@ -80,7 +80,7 @@ A repeat request for the **same city and outfit style within 30 minutes** return
 `/api/recommend` allows **6 requests per IP per hour** (`express-rate-limit`). Requests that fail before streaming starts don't count: invalid input, a weather outage, or the client disconnecting. Responses include `X-RateLimit-Remaining`, and the UI shows how many uses are left. The lookup endpoints have a separate, generous limit of 120 per minute. The counter is kept in memory. If you run several instances, use a shared store such as Redis (`rate-limit-redis`).
 
 ### Performance
-- Everything that does I/O is `async`. The recommendation **streams** to the browser, so text appears as soon as Claude produces it, and DOM updates are batched with `requestAnimationFrame`.
+- Everything that does I/O is `async`. The server streams Claude's answer to the browser as it is written (this keeps the connection alive during long responses), but the page shows loading placeholders until the **complete** recommendation has arrived, then displays the weather and outfit together.
 - Weather results are cached for 10 minutes per ~1 km grid cell, and concurrent requests for the same cell share one upstream call.
 - The city search and nearest-city indexes (~150k cities) are built once at startup, outside the request path, so a search takes a few milliseconds. The browser waits for a pause in typing, cancels stale searches, and only ever receives ~30 results.
 - Upstream calls have timeouts (Open-Meteo 8 s, Claude 60 s with 2 retries). If the browser disconnects, the Claude request is cancelled so no tokens are wasted.
