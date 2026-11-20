@@ -1,0 +1,15 @@
+node_modules
+dist
+public/js
+public/styles.css
+.git
+.gitignore
+.claude
+skills-lock.json
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore
+*.md
+npm-debug.log*

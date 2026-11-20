@@ -17,6 +17,12 @@ const publicDir = path.resolve(here, "../public");
 
 const app = express();
 app.disable("x-powered-by");
+
+// Liveness probe for container platforms (Railway, Docker, etc.). Registered
+// first so it is cheap and never rate limited.
+app.get("/health", (_req, res) => {
+  res.set("Cache-Control", "no-store").json({ status: "ok" });
+});
 app.set("trust proxy", config.trustProxy);
 app.use(
   helmet({

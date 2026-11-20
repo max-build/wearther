@@ -17,6 +17,28 @@ npm start                 # http://localhost:3000
 
 For development, `npm run dev` watches and reloads both the server and the client.
 
+## Deploy to Railway (Docker)
+
+The repo ships with a multi-stage `Dockerfile`, a `.dockerignore` and a `railway.json`, so it deploys as-is.
+
+1. In Railway: **New Project → Deploy from GitHub repo** and pick this repo and branch.
+2. Open the service's **Variables** tab and add **`ANTHROPIC_API_KEY`** (required). Optional: `CLAUDE_MODEL`, `CLAUDE_EFFORT`, `RATE_LIMIT_PER_HOUR`.
+3. Under **Settings → Networking**, click **Generate Domain**.
+
+That's it. Railway builds the Dockerfile, injects `PORT`, and uses `GET /health` as the health check.
+
+Notes:
+- `TRUST_PROXY=1` is set in the Dockerfile because Railway puts one proxy in front of the app. Without it, every visitor would share the proxy's IP and the 6-per-hour limit would apply to everyone combined.
+- The rate limit counter lives in memory, so run a single replica (or add a shared store such as Redis before scaling out).
+- The API key is never baked into the image: `.dockerignore` excludes `.env*`, and the key is supplied at runtime.
+
+Run the container locally:
+
+```bash
+docker build -t wearther .
+docker run --rm -p 3000:3000 -e ANTHROPIC_API_KEY=your-key -e TRUST_PROXY=0 wearther
+```
+
 ## Configuration (`.env`)
 
 | Variable | Default | Purpose |
@@ -46,6 +68,7 @@ public/         index.html, styles.css
 
 | Method | Path | Notes |
 |---|---|---|
+| GET | `/health` | Liveness probe used by Docker/Railway |
 | GET | `/api/cities/search?q=` | Live city search across all countries (min. 2 letters, max 30 results, accent-insensitive; e.g. `paris`, `paris texas`) |
 | POST | `/api/locate` `{lat, lon}` | Nearest city, computed on the server (no third-party geocoder) |
 | POST | `/api/recommend` `{cityId, style}` (`style`: `female`, `male` or `unisex`) | **Rate limited.** Server-Sent Events: `weather` → `delta`… → `done` / `error` |
