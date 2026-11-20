@@ -10,6 +10,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { nearestCity, resolveCity, searchCities, warmGeoIndex } from "./locations.js";
 import { OUTFIT_STYLES, OutfitRefusedError, streamOutfit } from "./outfit.js";
+import { RecommendationCache } from "./recommendationCache.js";
 import { getWeather, WeatherError } from "./weather.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,14 @@ app.use(
 );
 app.use(express.json({ limit: "4kb" }));
 
+const recommendSchema = z.object({
+  cityId: z.string().regex(/^[A-Z]{2}:\d+$/),
+  style: z.enum(OUTFIT_STYLES),
+});
+
+/** Finished recommendations, reused for 30 minutes per city + outfit style. */
+const recommendations = new RecommendationCache(config.recommendationCacheMs);
+
 // ---- Rate limits -------------------------------------------------------------
 
 /** The expensive endpoint (weather + LLM): N uses per client per hour. */
@@ -46,6 +55,12 @@ const recommendLimiter = rateLimit({
   // Requests that fail before streaming starts (bad input, weather outage,
   // client disconnects) don't use up the user's quota.
   skipFailedRequests: true,
+  // Repeat requests answered from the 30-minute cache cost nothing (no Claude or
+  // weather call), so they don't use up the user's quota either.
+  skip: (req) => {
+    const p = recommendSchema.safeParse(req.body);
+    return p.success && recommendations.get(RecommendationCache.key(p.data.cityId, p.data.style)) !== undefined;
+  },
   handler: (_req, res, _next, options) => {
     res.status(options.statusCode).json({
       error: `You've reached the limit of ${config.rateLimitPerHour} outfit recommendations per hour. Please try again later.`,
@@ -96,10 +111,6 @@ api.post("/locate", lookupLimiter, (req, res) => {
 
 // ---- Recommendation (Server-Sent Events) ---------------------------------------
 
-const recommendSchema = z.object({
-  cityId: z.string().regex(/^[A-Z]{2}:\d+$/),
-  style: z.enum(OUTFIT_STYLES),
-});
 
 api.post("/recommend", recommendLimiter, async (req, res) => {
   const parsed = recommendSchema.safeParse(req.body);
@@ -113,39 +124,70 @@ api.post("/recommend", recommendLimiter, async (req, res) => {
   const abort = new AbortController();
   res.on("close", () => abort.abort());
 
-  let weather;
-  try {
-    weather = await getWeather(loc.lat, loc.lon);
-  } catch (err) {
-    console.error("weather error:", err);
-    res.status(502).json({ error: err instanceof WeatherError ? err.message : "Could not fetch the weather." });
-    return;
-  }
-  if (abort.signal.aborted) return;
+  const { style } = parsed.data;
+  const key = RecommendationCache.key(parsed.data.cityId, style);
 
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no",
-  });
+  const startStream = () => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+  };
   const send = (event: string, data: unknown) => {
     if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  send("weather", { location: loc, weather });
-
-  try {
-    for await (const ev of streamOutfit(loc, weather, parsed.data.style, abort.signal)) {
-      if (ev.type === "text") send("delta", ev.text);
-      else send("done", { model: ev.model, usedFallback: ev.usedFallback });
-    }
-  } catch (err) {
-    if (abort.signal.aborted) return; // client disconnected; nothing to report
-    console.error("LLM error:", err);
-    send("error", { error: llmErrorMessage(err) });
-  } finally {
+  // Repeat request within 30 minutes (or one already being generated): replay the
+  // first answer. No Open-Meteo call, no Claude call.
+  const cached = recommendations.get(key) ?? (await recommendations.waitForPending(key));
+  if (abort.signal.aborted) return;
+  if (cached) {
+    startStream();
+    send("weather", { location: cached.location, weather: cached.weather });
+    send("delta", cached.text);
+    send("done", { model: cached.model, usedFallback: cached.usedFallback });
     res.end();
+    return;
+  }
+
+  // First request for this city + style: we generate it, and others wait for us.
+  const generation = recommendations.begin(key);
+  try {
+    let weather;
+    try {
+      weather = await getWeather(loc.lat, loc.lon);
+    } catch (err) {
+      console.error("weather error:", err);
+      res.status(502).json({ error: err instanceof WeatherError ? err.message : "Could not fetch the weather." });
+      return;
+    }
+    if (abort.signal.aborted) return;
+
+    startStream();
+    send("weather", { location: loc, weather });
+
+    let text = "";
+    try {
+      for await (const ev of streamOutfit(loc, weather, style, abort.signal)) {
+        if (ev.type === "text") {
+          text += ev.text;
+          send("delta", ev.text);
+        } else {
+          generation.resolve({ location: loc, weather, text, model: ev.model, usedFallback: ev.usedFallback });
+          send("done", { model: ev.model, usedFallback: ev.usedFallback });
+        }
+      }
+    } catch (err) {
+      if (abort.signal.aborted) return; // client disconnected; nothing to report
+      console.error("LLM error:", err);
+      send("error", { error: llmErrorMessage(err) });
+    } finally {
+      res.end();
+    }
+  } finally {
+    generation.fail(); // no-op if it completed; otherwise lets waiting requests retry on their own
   }
 });
 

@@ -73,6 +73,9 @@ public/         index.html, styles.css
 | POST | `/api/locate` `{lat, lon}` | Nearest city, computed on the server (no third-party geocoder) |
 | POST | `/api/recommend` `{cityId, style}` (`style`: `female`, `male` or `unisex`) | **Rate limited.** Server-Sent Events: `weather` → `delta`… → `done` / `error` |
 
+### Recommendation cache
+A repeat request for the **same city and outfit style within 30 minutes** returns the original recommendation exactly (same weather snapshot, same outfit text). It makes no Claude or Open-Meteo call, and it doesn't count towards the hourly limit. The 30 minutes run from when the recommendation was first generated, and a different style or city gets a fresh one. Identical requests that arrive while the first is still being generated wait for it instead of starting a second Claude call. Only complete, successful results are cached. The cache is in memory (up to 2,000 entries), so it resets on restart and isn't shared between replicas. The window is `recommendationCacheMs` in `src/config.ts`.
+
 ### Rate limiting
 `/api/recommend` allows **6 requests per IP per hour** (`express-rate-limit`). Requests that fail before streaming starts don't count: invalid input, a weather outage, or the client disconnecting. Responses include `X-RateLimit-Remaining`, and the UI shows how many uses are left. The lookup endpoints have a separate, generous limit of 120 per minute. The counter is kept in memory. If you run several instances, use a shared store such as Redis (`rate-limit-redis`).
 

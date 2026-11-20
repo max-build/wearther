@@ -25,5 +25,7 @@ export const config = Object.freeze({
   rateLimitPerHour: intEnv("RATE_LIMIT_PER_HOUR", 6),
   trustProxy: intEnv("TRUST_PROXY", 0),
   weatherCacheMs: 10 * 60 * 1000,
+  /** A repeat request for the same city + outfit style within this window gets the first answer back. */
+  recommendationCacheMs: 30 * 60 * 1000,
   upstreamTimeoutMs: 8_000,
 });
