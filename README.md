@@ -1,0 +1,64 @@
+# WEARther
+
+A TypeScript web app that recommends a weather-appropriate **and locally appropriate** outfit for the city you're in.
+
+1. Type your **city** (results from every country appear as you type) and pick an **outfit style** (masculine, feminine or unisex), or click **📍 Find my location**.
+2. The server fetches current conditions from [Open-Meteo](https://open-meteo.com/) (free, no key).
+3. The weather goes to **Claude** (`claude-sonnet-5-5`), which streams back an outfit that suits the weather and follows local dress conventions and norms.
+
+## Quick start
+
+```bash
+npm install
+cp .env.example .env      # then set ANTHROPIC_API_KEY
+npm run build   # compiles Tailwind/daisyUI CSS + TypeScript
+npm start                 # http://localhost:3000
+```
+
+For development, `npm run dev` watches and reloads both the server and the client.
+
+## Configuration (`.env`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Claude API key |
+| `PORT` | `3000` | HTTP port |
+| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Model used for recommendations |
+| `CLAUDE_EFFORT` | `low` | `low`/`medium`/`high`/`xhigh`/`max`. Low keeps responses fast |
+| `RATE_LIMIT_PER_HOUR` | `6` | Recommendations allowed per client IP per hour |
+| `TRUST_PROXY` | `0` | Number of reverse proxies in front of the app, so rate limiting sees the real client IP |
+
+## How it works
+
+```
+src/
+  server.ts     Express app, routes, rate limits, SSE streaming
+  locations.ts  Countries/cities (offline dataset) + nearest-city lookup
+  weather.ts    Open-Meteo client with 10-min cache + request de-duplication
+  outfit.ts     Claude prompt + streaming
+  cache.ts      Async TTL cache that shares in-flight promises
+  config.ts     Validated env config
+client/app.ts   Browser UI (compiled to public/js)
+public/         index.html, styles.css
+```
+
+### API
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/cities/search?q=` | Live city search across all countries (min. 2 letters, max 30 results, accent-insensitive; e.g. `paris`, `paris texas`) |
+| POST | `/api/locate` `{lat, lon}` | Nearest city, computed on the server (no third-party geocoder) |
+| POST | `/api/recommend` `{cityId, style}` (`style`: `female`, `male` or `unisex`) | **Rate limited.** Server-Sent Events: `weather` → `delta`… → `done` / `error` |
+
+### Rate limiting
+`/api/recommend` allows **6 requests per IP per hour** (`express-rate-limit`). Requests that fail before streaming starts don't count: invalid input, a weather outage, or the client disconnecting. Responses include `X-RateLimit-Remaining`, and the UI shows how many uses are left. The lookup endpoints have a separate, generous limit of 120 per minute. The counter is kept in memory. If you run several instances, use a shared store such as Redis (`rate-limit-redis`).
+
+### Performance
+- Everything that does I/O is `async`. The recommendation **streams** to the browser, so text appears as soon as Claude produces it, and DOM updates are batched with `requestAnimationFrame`.
+- Weather results are cached for 10 minutes per ~1 km grid cell, and concurrent requests for the same cell share one upstream call.
+- The city search and nearest-city indexes (~150k cities) are built once at startup, outside the request path, so a search takes a few milliseconds. The browser waits for a pause in typing, cancels stale searches, and only ever receives ~30 results.
+- Upstream calls have timeouts (Open-Meteo 8 s, Claude 60 s with 2 retries). If the browser disconnects, the Claude request is cancelled so no tokens are wasted.
+- One Anthropic client is reused for HTTP keep-alive. Static files are gzipped, and search results are cached by the browser.
+
+### Safety
+`helmet` security headers, `zod` input validation, a 4 KB JSON body limit, and LLM output that is HTML-escaped before rendering. Server-side refusal fallbacks are on (`fallbacks: "default"`). If the primary model declines, the API retries on a fallback model in the same call.
