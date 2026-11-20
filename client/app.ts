@@ -281,6 +281,28 @@ function showForm(): void {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+/** Placeholder shown on the results page until the complete recommendation is ready. */
+function showPlaceholders(): void {
+  weatherEl.innerHTML =
+    `<div class="mb-4 flex items-center justify-between gap-4" aria-hidden="true">` +
+    `<div class="flex-1 space-y-2"><div class="skeleton h-7 w-3/4"></div><div class="skeleton h-5 w-24"></div></div>` +
+    `<div class="skeleton h-14 w-20"></div></div>` +
+    `<div class="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-hidden="true">${'<div class="skeleton h-16 w-full"></div>'.repeat(6)}</div>`;
+  outfitEl.innerHTML =
+    `<p class="sr-only">Preparing your outfit recommendation…</p>` +
+    `<div class="space-y-3" aria-hidden="true">` +
+    `<div class="skeleton h-3 w-16"></div>` +
+    `<div class="space-y-2">${'<div class="skeleton h-12 w-full"></div>'.repeat(5)}</div>` +
+    `<div class="skeleton mt-6 h-3 w-40"></div>` +
+    `<div class="skeleton h-4 w-full"></div><div class="skeleton h-4 w-5/6"></div></div>`;
+  outfitEl.setAttribute("aria-busy", "true");
+}
+
+function showResultsError(message: string): void {
+  weatherEl.innerHTML = "";
+  outfitEl.innerHTML = `<div role="alert" class="alert alert-error alert-soft text-sm">${escapeHtml(message)}</div>`;
+}
+
 async function recommend(e: SubmitEvent): Promise<void> {
   e.preventDefault();
   if (busy || !selectedCityId || !styleSel.value) return;
@@ -289,12 +311,14 @@ async function recommend(e: SubmitEvent): Promise<void> {
   setStatus("Checking the weather…", false, true);
   resultEl.hidden = true;
   againBtn.hidden = true;
+  weatherEl.innerHTML = "";
   outfitEl.innerHTML = "";
   metaEl.textContent = "";
 
   const request = (currentRequest = new AbortController());
+  let incoming: { location: Location; weather: Weather } | undefined;
   let text = "";
-  let frame = 0;
+  let completed = false;
   try {
     const res = await fetch("/api/recommend", {
       method: "POST",
@@ -308,51 +332,39 @@ async function recommend(e: SubmitEvent): Promise<void> {
       throw new Error(body.error ?? `Request failed (${res.status})`);
     }
 
-    // Batch DOM updates to one per animation frame, however fast tokens arrive.
-    const scheduleRender = () => {
-      frame ||= requestAnimationFrame(() => {
-        frame = 0;
-        outfitEl.innerHTML = renderOutfit(text);
-      });
-    };
-
     for await (const { event, data } of readSse(res.body)) {
       const payload: unknown = JSON.parse(data);
       if (event === "weather") {
-        const { location, weather } = payload as { location: Location; weather: Weather };
-        renderWeather(location, weather);
-        // Results page: hide the questions, show the recommendation.
+        // Results page opens now, but only with placeholders: nothing is shown
+        // until the complete recommendation has arrived.
+        incoming = payload as { location: Location; weather: Weather };
         form.hidden = true;
         resultEl.hidden = false;
+        showPlaceholders();
         window.scrollTo({ top: 0 });
-        outfitEl.insertAdjacentHTML("afterend", '<span id="typing" class="loading loading-dots loading-sm self-center text-primary"></span>');
         setStatus("", false, false);
       } else if (event === "delta") {
-        text += payload as string;
-        scheduleRender();
+        text += payload as string; // collected silently, not displayed yet
       } else if (event === "done") {
+        if (!incoming) throw new Error("The recommendation was incomplete. Please try again.");
+        renderWeather(incoming.location, incoming.weather);
+        outfitEl.innerHTML = renderOutfit(text);
         metaEl.textContent = quotaText;
+        completed = true;
       } else if (event === "error") {
         throw new Error((payload as { error: string }).error);
       }
     }
+    if (!completed) throw new Error("The connection was interrupted before your recommendation was ready. Please try again.");
   } catch (err) {
     if (!request.signal.aborted) {
       const msg = (err as Error).message;
       if (resultEl.hidden) setStatus(msg, true);
-      else {
-        // Failed after the results page opened: show the error there.
-        outfitEl.innerHTML = renderOutfit(text) + `<div role="alert" class="alert alert-error alert-soft mt-4 text-sm">${escapeHtml(msg)}</div>`;
-      }
+      else showResultsError(msg); // failed after the results page opened
     }
   } finally {
-    cancelAnimationFrame(frame);
-    if (!resultEl.hidden && !request.signal.aborted) {
-      const html = renderOutfit(text);
-      if (html && !outfitEl.querySelector('[role="alert"]')) outfitEl.innerHTML = html;
-      againBtn.hidden = false;
-    }
-    document.getElementById("typing")?.remove();
+    outfitEl.removeAttribute("aria-busy");
+    if (!resultEl.hidden && !request.signal.aborted) againBtn.hidden = false;
     busy = false;
     updateSubmit();
   }
