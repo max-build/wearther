@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/header-image.png" alt="Descriptive alt text">
+  <img src="wearther/public/header-image.png" alt="Descriptive alt text">
 </p>
 
 A TypeScript web app that recommends a weather-appropriate **and culturally tailored** outfit for the city you're in.
