@@ -1,5 +1,5 @@
 <p align="center">
-<![Descriptive alt text](https://github.com/max-build/wearther/blob/main/public/header-image)>
+  <img src="./public/header-image.png" alt="Descriptive alt text">
 </p>
 
 A TypeScript web app that recommends a weather-appropriate **and culturally tailored** outfit for the city you're in.
