@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/max-build/wearther/main/public/header-image.png" alt="WEARther Header" width="600">
+  <img src="https://raw.githubusercontent.com/max-build/wearther/main/public/header-image" alt="WEARther Header" width="600">
 </p>
 
 A TypeScript web app that recommends a weather-appropriate **and culturally tailored** outfit for the city you're in.
