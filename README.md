@@ -1,5 +1,5 @@
 <p align="center">
-![WEARther Header](./public/header-image.png)
+![WEARther Header]("./public/header-image.png")
 </p>
 
 A TypeScript web app that recommends a weather-appropriate **and culturally tailored** outfit for the city you're in.
