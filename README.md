@@ -1,5 +1,4 @@
-# WEARther
-![Descriptive alt text](https://github.com/max-build/wearther/blob/main/public/header-image)
+# ![Descriptive alt text](https://github.com/max-build/wearther/blob/main/public/header-image)
 
 A TypeScript web app that recommends a weather-appropriate **and culturally tailored** outfit for the city you're in.
 
