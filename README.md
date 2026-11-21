@@ -1,6 +1,7 @@
 <p align="center">
-  <img src="./public/header-image.png" alt="WEARther Header">
+![WEARther Header](./public/header-image.png)
 </p>
+
 A TypeScript web app that recommends a weather-appropriate **and culturally tailored** outfit for the city you're in.
 
 1. Type your **city** (results from every country appear as you type) and pick an **outfit style** (masculine, feminine or unisex), or click **📍 Find my location**.
