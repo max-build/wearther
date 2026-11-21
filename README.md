@@ -1,6 +1,6 @@
 # WEARther
-
-A TypeScript web app that recommends a weather-appropriate **and locally appropriate** outfit for the city you're in.
+![Descriptive alt text](https://github.com/max-build/wearther/blob/main/public/header-image)
+A TypeScript web app that recommends a weather-appropriate **and culturally tailored** outfit for the city you're in.
 
 1. Type your **city** (results from every country appear as you type) and pick an **outfit style** (masculine, feminine or unisex), or click **📍 Find my location**.
 2. The server fetches current conditions from [Open-Meteo](https://open-meteo.com/) (free, no key).
